@@ -1,57 +1,45 @@
 import numpy as np
 import trimesh
-import trimesh.transformations as tf
 
-m = trimesh.load("design/nest_base.stl")
+base = trimesh.load("design/nest_base.stl")
+tray = trimesh.load("design/water_tray.stl")
 
 
-def probe_point(p, r=0.25):
-    """Return material volume inside a tiny sphere at point p."""
+def probe_point(m, p, r=0.25):
     s = trimesh.creation.icosphere(subdivisions=2, radius=r)
     s.apply_translation(p)
-    inter = trimesh.boolean.intersection([m, s])
-    return 0.0 if inter is None or inter.is_empty else abs(inter.volume)
+    it = trimesh.boolean.intersection([m, s])
+    return 0.0 if it is None or it.is_empty else abs(it.volume)
 
 
-def probe_cylinder(p1, p2, r=0.2):
-    """Material volume inside a thin cylinder from p1 to p2."""
+def probe_cyl(m, p1, p2, r=0.2):
     p1 = np.array(p1, float)
     p2 = np.array(p2, float)
     v = p2 - p1
-    length = np.linalg.norm(v)
-    c = trimesh.creation.cylinder(radius=r, height=length, sections=32)
-    T = trimesh.geometry.align_vectors([0, 0, 1], v / length)
-    c.apply_transform(T)
+    L = np.linalg.norm(v)
+    c = trimesh.creation.cylinder(radius=r, height=L, sections=24)
+    c.apply_transform(trimesh.geometry.align_vectors([0, 0, 1], v / L))
     c.apply_translation((p1 + p2) / 2.0)
-    inter = trimesh.boolean.intersection([m, c])
-    return 0.0 if inter is None or inter.is_empty else abs(inter.volume)
+    it = trimesh.boolean.intersection([m, c])
+    return 0.0 if it is None or it.is_empty else abs(it.volume)
 
 
-D = np.array([57.0, 32.0])
-Wl = np.array([67.0, 23.0])
-d = (Wl - D) / np.linalg.norm(Wl - D)
-n = np.array([-d[1], d[0]])
+print("== base floor: grill vs solid ==")
+print(f"  grill hole  (36,5,z2)      vol={probe_point(base,(36,5,2)):.3f}  (expect 0)")
+print(f"  nest solid  (61.5,9.5,z2)  vol={probe_point(base,(61.5,9.5,2)):.3f}  (expect >0)")
+print(f"  outworld floor (17,23,z2)  vol={probe_point(base,(17,23,2)):.3f}  (expect >0)")
+print(f"  base tube port open (x-1..5,y13,z9) vol={probe_cyl(base,(-1,13,9),(5,13,9)):.3f} (expect 0)")
+print(f"  chamber D void (57,32,z10) vol={probe_point(base,(57,32,10)):.3f}  (expect 0)")
+print(f"  socket (36.5,6.5,z1)       vol={probe_point(base,(36.5,6.5,1)):.3f}  (expect 0)")
 
-print("== point probes (material volume; 0 = void) ==")
-pts = {
-    "well interior z10": (67, 23, 10),
-    "chamber D z10": (57, 32, 10),
-    "outworld z8": (17, 23, 8),
-    "well floor z1": (67, 23, 1),
-    "base floor z1": (50, 23, 1),
-}
-for k, p in pts.items():
-    print(f"  {probe_point(p):7.3f} mm^3  {k}")
+print("== tray ==")
+print(f"  cavity centre (38,23,z3)   vol={probe_point(tray,(38,23,3)):.3f}  (expect 0)")
+print(f"  tray floor    (38,23,z0.5) vol={probe_point(tray,(38,23,0.5)):.3f}  (expect >0)")
+print(f"  tray wall     (1.5,23,z3)  vol={probe_point(tray,(1.5,23,3)):.3f}  (expect >0)")
+print(f"  post          (36.5,6.5,z4)vol={probe_point(tray,(36.5,6.5,4)):.3f}  (expect >0)")
+print(f"  fill port open   (74->78,y23,z3) vol={probe_cyl(tray,(73,23,3),(79,23,3)):.3f} (expect 0)")
+print(f"  overflow open    (74->78,y32,z4.5) vol={probe_cyl(tray,(73,32,4.5),(79,32,4.5)):.3f} (expect 0)")
+print(f"  wall between ports (74.5,16,z4.5) vol={probe_point(tray,(74.5,16,4.5)):.3f} (expect >0)")
 
-print("== slit connectivity (cylinder along D->well @z10, r=0.2) ==")
-for off in (-2.0, 0.0, 2.0, 3.5):
-    q1 = np.append(D + n * off, 10.0)
-    q2 = np.append(Wl + n * off, 10.0)
-    vol = probe_cylinder(q1, q2)
-    tag = "OPEN (good)" if vol < 1e-6 else "BLOCKED"
-    print(f"  offset {off:+.1f}: vol={vol:7.4f}  {tag}")
-
-print("== slit ends above z=6 (check at z=3, expect BLOCKED) ==")
-q1 = np.append(D, 3.0)
-q2 = np.append(Wl, 3.0)
-print(f"  z=3 vol={probe_cylinder(q1, q2):7.4f} (should be >0)")
+print("== fit: post top vs socket depth ==")
+print(f"  post top z={tray.bounds[1][2]:.2f} (<=8.0), socket from base underside")
