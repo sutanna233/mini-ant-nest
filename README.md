@@ -54,3 +54,10 @@
 
 塑料盒体（100x55x30mm）：左侧活动区，右侧石膏巢区分干燥区/湿润区，中间塑料隔墙挡水，湿润区直接浇水。
 见 `v8_plaster/`，源码 `v8_plaster/generate_nest.py`。
+
+---
+
+## v9 - 小群落打样包 (v9_small_colony)
+
+按 ant-nest-builder skill baseline 缩小版（60x88x38mm）：塑料巢体 + 浇筑石膏保湿 + 亚克力磁吸盖 + 304 网压框。
+含 STL、亚克力 DXF/SVG、装配图、BOM、中文装配/加水/清洁/验收说明。见 `v9_small_colony/`。
