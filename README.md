@@ -47,3 +47,10 @@
 
 单件一次打印成型（56x56x50mm，免支撑）：后部圆筒活动区 + 前部敞开保湿土槽 + 底层水仓侧壁加水孔。
 见 `v6_onepiece/`，源码 `v6_onepiece/generate_nest.py`。
+
+---
+
+## v8 - 塑料巢 + 石膏干湿分区 (v8_plaster)
+
+塑料盒体（100x55x30mm）：左侧活动区，右侧石膏巢区分干燥区/湿润区，中间塑料隔墙挡水，湿润区直接浇水。
+见 `v8_plaster/`，源码 `v8_plaster/generate_nest.py`。
