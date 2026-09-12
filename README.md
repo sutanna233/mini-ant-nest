@@ -33,3 +33,17 @@
 
 单板式 2.5D 蚁巢（76x46mm，免支撑）：活动区 + 4 巢室 + 微缝保湿槽。
 见 `v4_mini_compact/`，源码 `v4_mini_compact/generate_nest.py`。
+
+---
+
+## v5 - 垂直分层土巢 (v5_soil_tower)
+
+市面主流样式：上部干燥活动区 / 中部铺土保湿区 / 底部水仓推拉加水口（56x56x81mm，免支撑）。
+见 `v5_soil_tower/`，源码 `v5_soil_tower/generate_nest.py`。
+
+---
+
+## v6 - 一体式土巢 (v6_onepiece)
+
+单件一次打印成型（56x56x50mm，免支撑）：后部圆筒活动区 + 前部敞开保湿土槽 + 底层水仓侧壁加水孔。
+见 `v6_onepiece/`，源码 `v6_onepiece/generate_nest.py`。
