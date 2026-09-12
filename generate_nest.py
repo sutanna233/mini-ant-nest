@@ -45,10 +45,17 @@ os.makedirs(PRE, exist_ok=True)
 # ---- 外形 ----
 SX, SY, H = 60.0, 88.0, 38.0     # 巢体外形 (x 宽 / y 深 / z 高)
 T = 3.0                          # 壁厚
-R = 3.0                          # 外形圆角
+R = 10.0                         # 外形大圆角 (柔和轮廓)
 PLATE = 3.0                      # 底板厚
 Z_FLOOR = 8.0                    # 活动区地面 / 巢区石膏表面 高度
 GYP_Z0 = 3.0                     # 石膏层底面 -> 石膏厚 = Z_FLOOR - GYP_Z0 = 5mm
+
+# ---- 造型: 二级底座 + 顶部围栏(让盖板齐平嵌入) ----
+BASE_EC1, BASE_EC2 = 2.5, 1.25   # 两级底座外扩
+BASE_Z1, BASE_Z2 = 3.0, 6.0      # 两级底座高度
+RIM_W, RIM_H = 3.0, 3.0          # 顶部围栏宽度 / 高度 (=亚克力厚, 盖板齐平)
+RIM_IR = 8.0                     # 围栏内轮廓圆角 (盖板随形)
+OPEN = (RIM_W, RIM_W, SX - RIM_W, SY - RIM_W)   # 顶部开口 (3,3)-(57,85)
 
 # ---- 平面分区 (x0,y0,x1,y1) ----
 ACT = (3.0, 3.0, 40.0, 34.0)     # 活动区腔 (干)
@@ -77,9 +84,14 @@ POCKET_D = 5.0
 
 # ---- 亚克力盖 ----
 ACRYLIC_T = 3.0                  # 名义厚度, 采购后必须实测
-ACT_COVER = (0.0, 0.0, 60.0, 42.0)     # 活动区盖轮廓
-NEST_COVER = (0.0, 43.0, 60.0, 88.0)   # 巢区盖轮廓
-COVER_TAB = (22.0, -5.0, 38.0, 0.0)    # 活动区盖前拉手
+COVER_R = 8.0                    # 盖板外侧圆角 (随围栏内轮廓)
+SEAM = 44.0                      # 两块盖板分缝 (压在中部实心隔断上)
+ACT_COVER = (3.0, 3.0, 57.0, SEAM - 0.5)      # 活动区盖轮廓
+NEST_COVER = (3.0, SEAM + 0.5, 57.0, 85.0)    # 巢区盖轮廓
+COVER_TAB_F = (24.0, -6.0, 36.0, 3.0)         # 活动区盖前拉手
+COVER_TAB_R = (24.0, 85.0, 36.0, 94.0)        # 巢区盖后拉手
+RIM_NOTCH_F = (24.0, 0.0, 36.0, 7.0)          # 前围栏让位拉手
+RIM_NOTCH_R = (24.0, 81.0, 36.0, 88.0)        # 后围栏让位拉手
 WINDOW_C = (21.5, 18.5)          # 通风窗中心 (对准活动区)
 WINDOW = (20.0, 10.0)            # 通风窗 20x10
 CLAMP = (38.0, 26.0, 3.0)        # 网压框 外形/厚
@@ -161,6 +173,18 @@ def build_body():
         add.append(b3(x0, NEST[1], 0, x1, NEST[3], H))
     for x, y in MAG_ACT + MAG_NEST:
         add.append(cyl(MAG_BOSS_D / 2, (x, y), 0, H, 48))
+    # 二级底座 (只在外轮廓之外加料, 形成台阶裙边; 不得填充腔体)
+    body_out = ex(rr(0, 0, SX, SY, R), -1, BASE_Z2 + 2)
+    add.append(diff([
+        ex(rr(-BASE_EC2, -BASE_EC2, SX + BASE_EC2, SY + BASE_EC2,
+               R + BASE_EC2), 0, BASE_Z2), body_out]))
+    add.append(diff([
+        ex(rr(-BASE_EC1, -BASE_EC1, SX + BASE_EC1, SY + BASE_EC1,
+               R + BASE_EC1), 0, BASE_Z1), body_out]))
+    # 顶部围栏 (围栏内开口 = 亚克力盖的嵌入位置)
+    rim = diff([ex(rr(0, 0, SX, SY, R), H, RIM_H),
+                ex(rr(*OPEN, RIM_IR), H - 1, RIM_H + 2)])
+    add.append(rim)
     body = union([body] + add)
 
     cuts = []
@@ -176,6 +200,9 @@ def build_body():
     # 石膏连通缺口 (底层)
     for (x0, x1), ya, yb in CH_NOTCH:
         cuts.append(b3(x0 - 1, ya, GYP_Z0, x1 + 1, yb, Z_FLOOR + 0.01))
+    # 围栏让位拉手
+    for x0, y0, x1, y1 in (RIM_NOTCH_F, RIM_NOTCH_R):
+        cuts.append(b3(x0, y0, H, x1, y1, H + RIM_H + 2))
     # 磁铁孔 (从顶面向下钻孔)
     for x, y in MAG_ACT + MAG_NEST:
         cuts.append(cyl(MAG_D / 2, (x, y), H - POCKET_D, H + 1, 48))
@@ -231,16 +258,31 @@ def _rect_pts(r):
     return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
 
 
-def _tile_paths(outline, tab, window, fill, holes):
+def rounded_pts(r, r_fl=0.0, r_fr=0.0, r_rr=0.0, r_rl=0.0, seg=10):
+    """圆角矩形点列 (逆时针, 顺序: 前右->后右->后左->前左); 半径 0 即直角"""
+    x0, y0, x1, y1 = r
+
+    def arc(cx, cy, rad, a0, a1):
+        if rad <= 0:
+            return [(cx, cy)]
+        return [(cx + rad * np.cos(t), cy + rad * np.sin(t))
+                for t in np.linspace(np.radians(a0), np.radians(a1), seg + 1)]
+
+    pts = []
+    pts += arc(x1 - r_fr, y0 + r_fr, r_fr, -90, 0)    # 前右
+    pts += arc(x1 - r_rr, y1 - r_rr, r_rr, 0, 90)     # 后右
+    pts += arc(x0 + r_rl, y1 - r_rl, r_rl, 90, 180)   # 后左
+    pts += arc(x0 + r_fl, y0 + r_fl, r_fl, 180, 270)  # 前左
+    return pts
+
+
+def _tile_paths(outline_pts, tab_pts, window, fill, holes):
     """把投影元素统一成 (kind, data) 列表, 供 dxf/svg 复用"""
-    items = [("poly", _rect_pts(outline))]
-    if tab:
-        items.append(("poly", _rect_pts(tab)))
+    items = [("poly", outline_pts)]
+    if tab_pts:
+        items.append(("poly", tab_pts))
     if window:
-        cx, cy = WINDOW_C
-        w, h = WINDOW
-        items.append(("poly", [(cx - w / 2, cy - h / 2), (cx + w / 2, cy - h / 2),
-                               (cx + w / 2, cy + h / 2), (cx - w / 2, cy + h / 2)]))
+        items.append(("poly", rounded_pts(window, 2.5, 2.5, 2.5, 2.5)))
     for hx, hy, hr in holes:
         items.append(("circ", ((hx, hy), hr)))
     if fill:
@@ -248,10 +290,10 @@ def _tile_paths(outline, tab, window, fill, holes):
     return items
 
 
-def acrylic(cover, holes, window=None, fill=None, tab=None, name="cover"):
+def acrylic(outline_pts, holes, window=None, fill=None, tab_pts=None, name="cover"):
     doc = ezdxf.new("R2010")
     msp = doc.modelspace()
-    items = _tile_paths(cover, tab, window, fill, holes)
+    items = _tile_paths(outline_pts, tab_pts, window, fill, holes)
     for kind, data in items:
         if kind == "poly":
             msp.add_lwpolyline(data, close=True, dxfattribs={"layer": "CUT"})
@@ -260,11 +302,10 @@ def acrylic(cover, holes, window=None, fill=None, tab=None, name="cover"):
     doc.saveas(os.path.join(OUT, name + ".dxf"))
 
 
-def acrylic_svg(cover, holes, window=None, fill=None, tab=None, name="cover"):
-    x0, y0, x1, y1 = cover
+def acrylic_svg(outline_pts, holes, window=None, fill=None, tab_pts=None, name="cover"):
     W, Hh = int(SX + 40), int(SY + 40)
     m = 20
-    items = _tile_paths(cover, tab, window, fill, holes)
+    items = _tile_paths(outline_pts, tab_pts, window, fill, holes)
     sg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{Hh}" '
           f'viewBox="0 0 {W} {Hh}">',
           '<g fill="none" stroke="black" stroke-width="0.4">']
@@ -285,26 +326,52 @@ def build_acrylics():
     act_holes = [(x, y, SCREW_HOLE_R) for x, y in MAG_ACT]
     act_holes += [(cx + sx * CLAMP_HOLE[0], cy + sy * CLAMP_HOLE[1], SCREW_HOLE_R)
                   for sx in (-1, 1) for sy in (-1, 1)]
+    act_pts = rounded_pts(ACT_COVER, r_fl=COVER_R, r_fr=COVER_R)
+    nest_pts = rounded_pts(NEST_COVER, r_rr=COVER_R, r_rl=COVER_R)
+    win = (WINDOW_C[0] - WINDOW[0] / 2, WINDOW_C[1] - WINDOW[1] / 2,
+           WINDOW_C[0] + WINDOW[0] / 2, WINDOW_C[1] + WINDOW[1] / 2)
     for tag in ("dxf", "svg"):
         fn = acrylic if tag == "dxf" else acrylic_svg
-        fn(ACT_COVER, act_holes, window=WINDOW_C, fill=FILL_C, tab=COVER_TAB,
-           name="acrylic_activity_cover")
+        fn(act_pts, act_holes, window=win, fill=FILL_C,
+           tab_pts=_rect_pts(COVER_TAB_F), name="acrylic_activity_cover")
         nest_holes = [(x, y, SCREW_HOLE_R) for x, y in MAG_NEST]
-        fn(NEST_COVER, nest_holes, name="acrylic_nest_cover")
+        fn(nest_pts, nest_holes, tab_pts=_rect_pts(COVER_TAB_R),
+           name="acrylic_nest_cover")
 
 
 # ================================================================ 预览
-def render(ax, mesh, color):
+def render(ax, mesh, color, alpha=1.0, view=None):
+    render_scene(ax, [(mesh, color, alpha)], view)
+
+
+def render_scene(ax, parts, view=None):
+    """把多个网格合成一个 Poly3DCollection 统一排序, 避免跨集合 z-order 鬼影"""
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
     from matplotlib.colors import to_rgb
-    n = mesh.face_normals
-    light = np.array([-0.35, -0.55, 0.75])
-    light /= np.linalg.norm(light)
-    inten = np.clip(n @ light, 0.3, 1.0)
-    c = np.array(to_rgb(color))
-    ax.add_collection3d(Poly3DCollection(mesh.triangles,
-                                         facecolors=c[None, :] * inten[:, None],
-                                         edgecolors="none"))
+    l1 = np.array([-0.40, -0.60, 0.72])
+    l1 /= np.linalg.norm(l1)
+    l2 = np.array([0.65, 0.35, 0.45])
+    l2 /= np.linalg.norm(l2)
+    if view is not None:
+        e, a = np.radians(view[0]), np.radians(view[1])
+        cam = np.array([np.cos(e) * np.cos(a), np.cos(e) * np.sin(a), np.sin(e)])
+    else:
+        cam = None
+    tris_list, col_list = [], []
+    for mesh, color, alpha in parts:
+        n = mesh.face_normals
+        t = mesh.triangles
+        inten = 0.46 + 0.40 * np.clip(n @ l1, 0, None) + 0.14 * np.clip(n @ l2, 0, None)
+        rgb = np.array(to_rgb(color))
+        cols = np.empty((len(t), 4))
+        cols[:, :3] = np.clip(rgb[None, :] * inten[:, None], 0, 1)
+        cols[:, 3] = alpha
+        tris_list.append(t)
+        col_list.append(cols)
+    pc = Poly3DCollection(np.concatenate(tris_list),
+                          facecolors=np.concatenate(col_list),
+                          edgecolors="none", zsort="average")
+    ax.add_collection3d(pc)
 
 
 def make_assembly(body, clamp, plug):
@@ -315,42 +382,59 @@ def make_assembly(body, clamp, plug):
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-    fig = plt.figure(figsize=(13, 6.2), dpi=140)
+    fig = plt.figure(figsize=(13, 6.4), dpi=140)
+    BG = "#f4f1ea"
+    fig.patch.set_facecolor(BG)
+    from shapely.geometry import Polygon as SPoly
 
-    def plate3d(ax, cover, color, z, tab=None):
-        x0, y0, x1, y1 = cover
-        polys = [[(x0, y0), (x1, y0), (x1, y1), (x0, y1)]]
-        if tab:
-            polys.append([(tab[0], tab[1]), (tab[2], tab[1]),
-                          (tab[2], tab[3]), (tab[0], tab[3])])
-        for p in polys:
-            ax.add_collection3d(Poly3DCollection(
-                [[(x, y, z) for x, y in p]], facecolors=color, edgecolors="#46708f"))
+    def cover_mesh(pts, tab_rect, z, t=ACRYLIC_T):
+        poly = SPoly(pts).buffer(0)
+        if tab_rect:
+            poly = poly.union(box(*tab_rect))
+        return ex(poly, z, t)
 
-    for idx, (elev, azim, title) in enumerate(
-            [(30, -60, "轴测 (含上下盖)"),
-             (90, -90, "俯视 (去盖)")]):
+    act_pts = rounded_pts(ACT_COVER, r_fl=COVER_R, r_fr=COVER_R)
+    nest_pts = rounded_pts(NEST_COVER, r_rr=COVER_R, r_rl=COVER_R)
+    act_cover = cover_mesh(act_pts, COVER_TAB_F, H)
+    nest_cover = cover_mesh(nest_pts, COVER_TAB_R, H)
+    # 细分网格以改善 matplotlib 的逐面深度排序 (仅用于渲染)
+    body_r = trimesh.Trimesh(*trimesh.remesh.subdivide_to_size(
+        body.vertices, body.faces, max_edge=3.5), process=False)
+    EX = 40.0
+
+    for idx, (elev, azim, title, explode) in enumerate(
+            [(26, -58, "爆炸装配图", True),
+             (26, -58, "合盖外观 (盖板嵌入围栏, 齐平)", False)]):
         ax = fig.add_subplot(1, 2, idx + 1, projection="3d")
-        render(ax, body, "#c8a165")
-        if idx == 0:
-            plate3d(ax, ACT_COVER, "#9fc4dc", H + ACRYLIC_T, tab=COVER_TAB)
-            plate3d(ax, NEST_COVER, "#9fc4dc", H + ACRYLIC_T)
-            cp = clamp.copy()
-            cp.apply_translation([0, 0, H + ACRYLIC_T])
-            render(ax, cp, "#7fa8c0")
-            pg = plug.copy()
-            pg.apply_translation([0, 0, H + ACRYLIC_T])
-            render(ax, pg, "#c0392b")
-        ax.set_xlim(-10, SX + 10)
-        ax.set_ylim(-15, SY + 10)
-        ax.set_zlim(0, 80)
-        ax.set_box_aspect((SX + 20, SY + 25, 80))
+        ax.set_facecolor(BG)
+        view = (elev, azim)
+        dz = EX if explode else 0.0
+        ac = act_cover.copy(); ac.apply_translation([0, 0, dz])
+        nc = nest_cover.copy(); nc.apply_translation([0, 0, dz])
+        cp = clamp.copy()
+        cp.apply_translation([0, 0, dz + (14.0 if explode else 0.0)])
+        pg = plug.copy()
+        pg.apply_translation([0, 0, dz])
+        render_scene(ax, [
+            (body_r, "#c2c8cf", 1.0),
+            (nc, "#8fd0e8", 0.9),
+            (ac, "#8fd0e8", 0.9),
+            (cp, "#4d7f9e", 0.95),
+            (pg, "#d1495b", 0.95),
+        ], view=view)
+        lim_y = SY + 26
+        zmax = (H + EX + 22) if explode else 60
+        ax.set_xlim(-13, SX + 13)
+        ax.set_ylim(-15, lim_y)
+        ax.set_zlim(0, zmax)
+        ax.set_box_aspect((SX + 26, lim_y + 15, zmax))
         ax.view_init(elev=elev, azim=azim)
         ax.set_axis_off()
-        ax.set_title(title, fontsize=10)
-    fig.suptitle("紧凑型小群落蚁巢 v0.6 | 打印巢体 + 浇筑石膏 + 亚克力磁吸网盖")
+        ax.set_title(title, fontsize=10, color="#39434c")
+    fig.suptitle("紧凑型小群落蚁巢 v0.6 | 打印巢体 + 浇筑石膏 + 亚克力磁吸网盖",
+                 color="#2b333a")
     fig.tight_layout()
-    fig.savefig(os.path.join(PRE, "assembly.png"))
+    fig.savefig(os.path.join(PRE, "assembly.png"), facecolor=BG)
     plt.close(fig)
 
 
@@ -361,39 +445,61 @@ def make_plan(body):
     matplotlib.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "sans-serif"]
     matplotlib.rcParams["axes.unicode_minus"] = False
     import matplotlib.pyplot as plt
-    from matplotlib.patches import Rectangle
+    from matplotlib.patches import Polygon, Rectangle, Circle
 
-    fig, ax = plt.subplots(figsize=(6.4, 8.4), dpi=140)
-    ax.add_patch(Rectangle((0, 0), SX, SY, fc="#c8a165", ec="#5b4326", lw=1.4))
-    ax.add_patch(Rectangle((ACT[0], ACT[1]), ACT[2] - ACT[0], ACT[3] - ACT[1],
-                           fc="#f3ead8", ec="#8a6a3a", lw=0.8))
-    ax.add_patch(Rectangle((WELL[0], WELL[1]), WELL[2] - WELL[0], WELL[3] - WELL[1],
-                           fc="#a9cfe8", ec="#1f6fb2", lw=0.8))
-    ax.add_patch(Rectangle((NEST[0], NEST[1]), NEST[2] - NEST[0], NEST[3] - NEST[1],
-                           fc="#e8ddc5", ec="#8a6a3a", lw=0.8))
+    BODY, EDGE = "#b9c0c7", "#4d5964"
+    DRY, WET, GYP = "#f4ecda", "#cfe7f4", "#e7dcc6"
+
+    def poly(pts, **kw):
+        ax.add_patch(Polygon(pts, closed=True, **kw))
+
+    fig, ax = plt.subplots(figsize=(6.6, 8.6), dpi=140)
+    # 二级底座轮廓 (虚线示意)
+    poly(rounded_pts((-BASE_EC1, -BASE_EC1, SX + BASE_EC1, SY + BASE_EC1),
+                     r_fl=R + BASE_EC1, r_fr=R + BASE_EC1,
+                     r_rr=R + BASE_EC1, r_rl=R + BASE_EC1),
+         fc="#e7e4dd", ec="#9aa1a8", lw=0.8, ls="--", zorder=1)
+    poly(rounded_pts((0, 0, SX, SY), r_fl=R, r_fr=R, r_rr=R, r_rl=R),
+         fc=BODY, ec=EDGE, lw=1.4, zorder=2)
+    # 顶部围栏内开口 (盖板嵌入处)
+    poly(rounded_pts(OPEN, r_fl=RIM_IR, r_fr=RIM_IR, r_rr=RIM_IR, r_rl=RIM_IR),
+         fc="#cfd5da", ec="#8b949c", lw=0.8, zorder=3)
+    # 盖板 (只画轮廓, 不填充, 便于看分区; 蓝=亚克力盖边界)
+    poly(rounded_pts(ACT_COVER, r_fl=COVER_R, r_fr=COVER_R), fc="none",
+         ec="#3f7fa6", lw=1.1, ls=(0, (5, 3)), zorder=8)
+    poly(rounded_pts(NEST_COVER, r_rr=COVER_R, r_rl=COVER_R), fc="none",
+         ec="#3f7fa6", lw=1.1, ls=(0, (5, 3)), zorder=8)
+    # 腔体
+    poly(_rect_pts(ACT), fc=DRY, ec="#9a7b4f", lw=0.8, zorder=5)
+    poly(_rect_pts(WELL), fc=WET, ec="#3f7fa6", lw=0.8, zorder=5)
+    poly(_rect_pts(NEST), fc=GYP, ec="#9a7b4f", lw=0.8, zorder=5)
     for x0, x1 in NEST_WALLS:
-        ax.add_patch(Rectangle((x0, NEST[1]), x1 - x0, NEST[3] - NEST[1],
-                               fc="#c8a165", ec="#5b4326", lw=0.6))
+        poly(_rect_pts((x0, NEST[1], x1, NEST[3])), fc=BODY, ec=EDGE, lw=0.6, zorder=6)
     # 门洞 / 过水通道
-    ax.add_patch(Rectangle((DOORWAY[0], DOORWAY[2]), DOORWAY[1] - DOORWAY[0],
-                           DOORWAY[3] - DOORWAY[2], fc="#ffffff", ec="#c0392b",
-                           lw=1.0, ls="--"))
-    ax.add_patch(Rectangle((CHANNEL[0], CHANNEL[2]), CHANNEL[1] - CHANNEL[0],
-                           CHANNEL[3] - CHANNEL[2], fc="#a9cfe8", ec="#1f6fb2",
-                           lw=1.0, ls="--"))
+    poly(_rect_pts((DOORWAY[0], DOORWAY[2], DOORWAY[1], DOORWAY[3])), fc="white",
+         ec="#c0392b", lw=1.0, ls="--", zorder=7)
+    poly(_rect_pts((CHANNEL[0], CHANNEL[2], CHANNEL[1], CHANNEL[3])), fc=WET,
+         ec="#3f7fa6", lw=1.0, ls="--", zorder=7)
+    # 通风窗 + 网压框
+    poly(rounded_pts((WINDOW_C[0] - WINDOW[0] / 2, WINDOW_C[1] - WINDOW[1] / 2,
+                      WINDOW_C[0] + WINDOW[0] / 2, WINDOW_C[1] + WINDOW[1] / 2),
+                     2.5, 2.5, 2.5, 2.5), fc="white", ec="#5b8aa6", lw=0.7, zorder=8)
     for x, y in MAG_ACT + MAG_NEST:
-        ax.add_patch(plt.Circle((x, y), MAG_D / 2, fc="#7b2222", ec="black", lw=0.4))
-    ax.text(ACT[0] + 12, 18, "活动区\n(干)", ha="center", fontsize=9, color="#8a6a3a")
-    ax.text(50.5, 18, "注水井\n(加水)", ha="center", fontsize=9, color="#1f6fb2")
-    ax.text(16, 41, "门洞", ha="center", fontsize=8, color="#c0392b")
-    ax.text(46, 41, "过水", ha="center", fontsize=8, color="#1f6fb2")
-    ax.text(30, 66, "巢区 (3 室 + 石膏底)", ha="center", fontsize=9, color="#5b4326")
-    ax.set_xlim(-5, SX + 5)
-    ax.set_ylim(-5, SY + 5)
+        ax.add_patch(Circle((x, y), MAG_D / 2, fc="#8c3b3b", ec="#3a1414",
+                            lw=0.4, zorder=9))
+    ax.text(21, 18, "活动区(干)", ha="center", fontsize=9, color="#8a6a3a", zorder=10)
+    ax.text(50.5, 18, "注水井(加水)", ha="center", fontsize=8, color="#2a6b93", zorder=10)
+    ax.text(30, 66, "巢区 3 室 + 5mm 石膏底", ha="center", fontsize=9,
+            color="#6b5836", zorder=10)
+    ax.text(16, 40, "门洞", ha="center", fontsize=7, color="#c0392b", zorder=10)
+    ax.text(46, 40, "过水", ha="center", fontsize=7, color="#2a6b93", zorder=10)
+    ax.set_xlim(-8, SX + 8)
+    ax.set_ylim(-8, SY + 8)
     ax.set_aspect("equal")
     ax.set_xlabel("x / mm")
     ax.set_ylabel("y / mm")
-    ax.set_title("俯视 (去盖) 前=活动区/注水井, 后=巢区 (红=磁铁)", fontsize=10)
+    ax.set_title("俯视 (去盖 · 虚线=底座, 蓝=亚克力盖) 前=活动区/注水井, 后=巢区",
+                 fontsize=9.5)
     fig.tight_layout()
     fig.savefig(os.path.join(PRE, "plan.png"))
     plt.close(fig)
@@ -407,13 +513,23 @@ def make_section():
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
 
-    GRAY, EDGE, DRY, WET = "#eef2f5", "#5b6b78", "#f3ead8", "#a9cfe8"
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.6), dpi=140)
+    GRAY, EDGE, DRY, WET = "#e4e7ea", "#4d5964", "#f4ecda", "#cfe7f4"
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.8), dpi=140)
 
     def frame(ax, title):
-        ax.add_patch(Rectangle((0, 0), SY, H, fc=GRAY, ec=EDGE, lw=1.6))
-        ax.add_patch(Rectangle((0, H), SY, ACRYLIC_T, fc="#bcd8ea", ec=EDGE, lw=0.9))
-        ax.set_xlim(-6, SY + 6)
+        # 二级底座
+        ax.add_patch(Rectangle((-BASE_EC1, 0), SY + 2 * BASE_EC1, BASE_Z1,
+                               fc="#cfd5da", ec=EDGE, lw=0.8, zorder=1))
+        ax.add_patch(Rectangle((-BASE_EC2, 0), SY + 2 * BASE_EC2, BASE_Z2,
+                               fc="#dde1e5", ec=EDGE, lw=0.8, zorder=2))
+        ax.add_patch(Rectangle((0, 0), SY, H, fc=GRAY, ec=EDGE, lw=1.5, zorder=3))
+        # 顶部围栏 + 嵌入盖板
+        ax.add_patch(Rectangle((0, H), RIM_W, RIM_H, fc=GRAY, ec=EDGE, lw=1.0, zorder=4))
+        ax.add_patch(Rectangle((SY - RIM_W, H), RIM_W, RIM_H, fc=GRAY, ec=EDGE,
+                               lw=1.0, zorder=4))
+        ax.add_patch(Rectangle((RIM_W, H), SY - 2 * RIM_W, ACRYLIC_T,
+                               fc="#bcd8ea", ec=EDGE, lw=0.9, zorder=4))
+        ax.set_xlim(-BASE_EC1 - 6, SY + BASE_EC1 + 6)
         ax.set_ylim(-6, H + 12)
         ax.set_aspect("equal")
         ax.axis("off")
@@ -460,18 +576,20 @@ def make_section():
 # ================================================================ BOM
 def write_bom():
     rows = [
-        ["nest_body", "打印件", "PETG(首选)/PLA", "60 x 88 x 38 mm", 1,
+        ["nest_body", "打印件", "PETG(首选)/PLA",
+         "核心 60 x 88 x 38 mm; 含二级底座 65 x 93 x 41 mm", 1,
          "0.4mm 喷嘴 / 0.2 层高 / 5 壁 / 6 顶底 / 20-30% 填充, 免支撑; 石膏腔与通道不得留封死的支撑料"],
         ["mesh_clamp", "打印件", "PETG/PLA", "38 x 26 x 3 mm", 1,
          "网面朝下平放打印, 贴网面必须平整"],
         ["fill_plug", "打印件", "PETG/PLA", "Ø11 x 5.5 mm", 1, "注水口塞"],
-        ["entrance_reducer", "打印件", "PETG/PLA", "约 22 x 7 x 16 mm", 1,
+        ["entrance_reducer", "打印件", "PETG/PLA", "约 22 x 11 x 15 mm", 1,
          "可选: 小型蚁用, 把 8x12 门洞缩到 Ø3, 压入巢区侧门洞"],
         ["acrylic_activity_cover", "外购/加工", "亚克力 实测厚度",
-         "60 x 42 mm + 拉手", 1,
-         "含 20x10 通风窗 + 4×Ø3.4 磁吸孔 + 4×Ø3.4 压框孔 + Ø8 注水孔; 必须实测厚度"],
-        ["acrylic_nest_cover", "外购/加工", "亚克力 实测厚度", "60 x 45 mm", 1,
-         "4×Ø3.4 磁吸孔; 全封闭避光"],
+         "54 x 40.5 mm + 拉手 (外角 R8)", 1,
+         "嵌入顶部围栏开口; 含 20x10 通风窗 + 4×Ø3.4 磁吸孔 + 4×Ø3.4 压框孔 + Ø8 注水孔; 必须实测厚度"],
+        ["acrylic_nest_cover", "外购/加工", "亚克力 实测厚度",
+         "54 x 40.5 mm + 拉手 (外角 R8)", 1,
+         "嵌入顶部围栏开口; 4×Ø3.4 磁吸孔; 全封闭避光"],
         ["mesh_304_100", "外购", "304 编织网 100 目",
          "28 x 18 mm (约 0.1mm 丝 / 0.18mm 孔)", 1, "剪裁, 不要冲孔; 到货检查散丝与边缘"],
         ["magnet_NdFeB", "外购", "钕磁铁 Ø6 x 2 mm", "Ø6 x 2 mm", 8,
