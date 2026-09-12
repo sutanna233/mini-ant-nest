@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="128" viewBox="0 0 100 128">
+<g fill="none" stroke="black" stroke-width="0.4">
+<polygon points="20.00,108.00 80.00,108.00 80.00,66.00 20.00,66.00"/>
+<polygon points="42.00,113.00 58.00,113.00 58.00,108.00 42.00,108.00"/>
+<polygon points="31.50,94.50 51.50,94.50 51.50,84.50 31.50,84.50"/>
+<circle cx="26.00" cy="102.00" r="1.70"/>
+<circle cx="74.00" cy="102.00" r="1.70"/>
+<circle cx="26.00" cy="70.00" r="1.70"/>
+<circle cx="74.00" cy="70.00" r="1.70"/>
+<circle cx="26.00" cy="100.50" r="1.70"/>
+<circle cx="26.00" cy="78.50" r="1.70"/>
+<circle cx="57.00" cy="100.50" r="1.70"/>
+<circle cx="57.00" cy="78.50" r="1.70"/>
+<circle cx="70.50" cy="89.50" r="4.00"/>
+</g></svg>
