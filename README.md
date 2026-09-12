@@ -26,3 +26,10 @@
 
 ## 上手建议
 - 先养 20 只工的小群试运行 2 周确认无漏水、湿度合适
+
+---
+
+## v4 - 迷你紧凑版 (v4_mini_compact)
+
+单板式 2.5D 蚁巢（76x46mm，免支撑）：活动区 + 4 巢室 + 微缝保湿槽。
+见 `v4_mini_compact/`，源码 `v4_mini_compact/generate_nest.py`。
